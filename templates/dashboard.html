@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Nginx Analytics{% endblock %}
+
+{% block header_right %}
+<form action="/logout" method="POST" style="margin: 0;">
+    <button type="submit" class="btn-logout">Logout</button>
+</form>
+{% endblock %}
+
+{% block content %}
+<section class="dashboard-section">
+
+    <!-- Charts -->
+    <div class="charts-grid">
+        <div class="chart-card chart-large">
+            <h3>Visitors</h3>
+            <div class="chart-container">
+                <canvas id="visitsChart"></canvas>
+            </div>
+        </div>
+        <div class="chart-card">
+            <h3>Top Paths</h3>
+            <div class="chart-container">
+                <canvas id="pathsChart"></canvas>
+            </div>
+        </div>
+        <div class="chart-card">
+            <h3>Status Codes</h3>
+            <div class="chart-container">
+                <canvas id="statusChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- KPIs Cards -->
+    <div class="kpi-grid">
+        <div class="kpi-card">
+            <span class="kpi-title">Unique Visitors</span>
+            <span class="kpi-value">{{ unique_visitors }}</span>
+        </div>
+        <div class="kpi-card">
+            <span class="kpi-title">Consumed Band</span>
+            <span class="kpi-value">{{ total_bandwidth_mb }} MB</span>
+        </div>
+        <div class="kpi-card">
+            <span class="kpi-title">Error Rate (HTTP 4xx/5xx)</span>
+            <span class="kpi-value">
+                {{ error_rate_pct }}%
+            </span>
+        </div>
+    </div>
+
+    <!-- Search Controls -->
+    <div class="domain-selector">
+        <label for="domain-select">Domain:</label>
+        <select id="domain-select" onchange="location.href='/dashboard?domain=' + this.value">
+            {% for d in domains %}
+            <option value="{{ d.name }}" {% if d.is_selected %}selected{% endif %}>{{ d.name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+
+    <form method="get" action="/dashboard">
+
+        <!-- Filter by Date -->
+        <div style="margin-top: 20px;">
+
+            <label style="font-size: 13px; cursor: pointer;">
+                <input type="checkbox" id="use_date_filter" name="use_date_filter" value="true" {% if use_date_filter
+                    %}checked{% endif %} onchange="toggleDateInputs()">
+                Filter Range:
+            </label>
+            <input type="date" id="start_date" name="start_date" value="{{ start_date }}" style="padding: 3px;" {% if
+                !use_date_filter %}disabled{% endif %}>
+            <span style="font-size: 12px;">to</span>
+            <input type="date" id="end_date" name="end_date" value="{{ end_date }}" style="padding: 3px;" {% if
+                !use_date_filter %}disabled{% endif %}>
+        </div>
+
+        <div style="margin: 15px 0;">
+
+            <input type="hidden" name="domain" value="{{ current_domain }}">
+            <input type="text" name="search" value="{{ search_term }}" placeholder="Search IP, path, status..."
+                style="padding: 5px; width: 220px;">
+
+            <button type="submit" style="padding: 5px 12px;">
+                Filter
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                    class="lucide lucide-search preview-icon">
+                    <path d="m21 21-4.34-4.34" />
+                    <circle cx="11" cy="11" r="8" />
+                </svg>
+            </button>
+
+            {% if !search_term.is_empty() || use_date_filter %}
+            <a class="button-a" href="/dashboard?domain={{ current_domain }}" style="margin-left: 5px;">Clear</a>
+            {% endif %}
+
+        </div>
+    </form>
+
+    <p class="log-info">Log file: <code>{{ nginx_log }}</code> &bull; Total: <strong>{{ total_visits }}</strong></p>
+
+    <!-- Logs Table -->
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>IP</th>
+                    <th>Data/Time</th>
+                    <th>Type</th>
+                    <th>Path</th>
+                    <th>Status</th>
+                    <th>Size</th>
+                    <th>Referer</th>
+                    <th>User-Agent</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if logs.is_empty() %}
+                <tr>
+                    <td colspan="8" class="empty-row">No logs found for this filter.</td>
+                </tr>
+                {% else %}
+                {% for log in logs %}
+                <tr>
+                    <td><code>{{ log.ip }}</code></td>
+                    <td>{{ log.timestamp }}</td>
+                    <td><span class="badge {{ log.method }}">{{ log.method }}</span></td>
+                    <td class="path-col" title="{{ log.path }}">{{ log.path }}</td>
+                    <td><span class="status-{{ log.status }}">{{ log.status }}</span></td>
+                    <td>{{ log.size }} B</td>
+                    <td class="referer-col" title="{{ log.referer }}">{{ log.referer }}</td>
+                    <td class="ua-col" title="{{ log.user_agent }}">{{ log.user_agent }}</td>
+                </tr>
+                {% endfor %}
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Pagination -->
+    <div style="margin-top: 20px; text-align: center;">
+        {% if current_page > 1 %}
+        <a class="button-a"
+            href="/dashboard?domain={{ current_domain }}&search={{ search_term }}&use_date_filter={{ use_date_filter }}&start_date={{ start_date }}&end_date={{ end_date }}&page={{ current_page - 1 }}">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                class="lucide lucide-arrow-big-left preview-icon">
+                <path
+                    d="M10.793 19.793a.707.707 0 0 0 1.207-.5V16a1 1 0 0 1 1-1h6a1 1 0 0 0 1-1v-4a1 1 0 0 0-1-1h-6a1 1 0 0 1-1-1V4.707a.707.707 0 0 0-1.207-.5l-6.94 6.94a1.207 1.207 0 0 0 0 1.707z" />
+            </svg>
+        </a>
+        {% endif %}
+
+        <span style="margin: 0 15px;">
+            Page {{ current_page }} from {{ total_pages }} (Total: {{ total_visits }} regists)
+        </span>
+
+        {% if current_page < total_pages %}
+        <a class="button-a"
+            href="/dashboard?domain={{ current_domain }}&search={{ search_term }}&use_date_filter={{ use_date_filter }}&start_date={{ start_date }}&end_date={{ end_date }}&page={{ current_page + 1 }}">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                class="lucide lucide-arrow-big-right preview-icon">
+                <path
+                    d="M13.207 19.793a.707.707 0 0 1-1.207-.5V16a1 1 0 0 0-1-1H5a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h6a1 1 0 0 1 1-1V4.707a.707.707 0 0 0 1.207-.5l6.94 6.94a1.207 1.207 0 0 1 0 1.707z" />
+            </svg>
+        </a>
+        {% endif %}
+    </div>
+</section>
+
+<script>
+    function toggleDateInputs() {
+        const checkbox = document.getElementById('use_date_filter');
+        const startInput = document.getElementById('start_date');
+        const endInput = document.getElementById('end_date');
+
+        startInput.disabled = !checkbox.checked;
+        endInput.disabled = !checkbox.checked;
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+        const visitsData = {{ visits_json| safe
+    }};
+    const pathsData = {{ top_paths_json| safe }};
+    const statusData = {{ status_codes_json| safe }};
+
+    if (typeof window.initDashboardCharts === 'function') {
+        window.initDashboardCharts(visitsData, pathsData, statusData);
+    }
+    });
+</script>
+{% endblock %}
